@@ -1,51 +1,239 @@
 import { makeTownsBot } from '@towns-protocol/bot'
 import commands from './commands'
+import { storage } from './storage'
+import {
+    handleCreateWager,
+    handleBrowseWagers,
+    handleAcceptWager,
+    handleMyWagers,
+    handleHistory,
+    handleBalance,
+    handleDeposit,
+    handleCancelWager,
+    handleDisputeWager,
+} from './wagerHandlers'
+import {
+    handleAdminDashboard,
+    handleSettleWager,
+    handleTieWager,
+    handleResolveDispute,
+} from './adminHandlers'
+import { generateTransactionId, formatAmount } from './utils'
+import type { Transaction } from './types'
 
 const bot = await makeTownsBot(process.env.APP_PRIVATE_DATA!, process.env.JWT_SECRET!, {
     commands,
 })
 
-bot.onSlashCommand('help', async (handler, { channelId }) => {
+// Note: Global admins are no longer used - each wager has its own agreed admins
+// This is kept for potential future platform-level admin features
+
+// Periodic task to check for expired wagers and pending settlements
+setInterval(() => {
+    const now = new Date()
+    const allWagers = storage.getAllWagers()
+
+    for (const wager of allWagers) {
+        // Auto-refund expired wagers that were never accepted
+        if (wager.status === 'open' && now > wager.expirationTime) {
+            const creator = storage.getUser(wager.creatorId)
+            if (creator) {
+                creator.balance += wager.stakeAmount
+                storage.updateUser(wager.creatorId, { balance: creator.balance })
+
+                const refundTx: Transaction = {
+                    id: generateTransactionId(),
+                    userId: wager.creatorId,
+                    wagerId: wager.id,
+                    type: 'refund',
+                    amount: wager.stakeAmount,
+                    status: 'completed',
+                    timestamp: now,
+                }
+                storage.createTransaction(refundTx)
+
+                storage.updateWager(wager.id, {
+                    status: 'cancelled',
+                })
+            }
+        }
+
+        // Mark accepted wagers as pending settlement when event time passes
+        if (
+            wager.status === 'accepted' &&
+            wager.acceptorId &&
+            now >= wager.eventTime
+        ) {
+            storage.updateWager(wager.id, {
+                status: 'pending_settlement',
+            })
+        }
+    }
+}, 60000) // Check every minute
+
+// Slash Commands
+bot.onSlashCommand('start', async (handler, { channelId, userId }) => {
     await handler.sendMessage(
         channelId,
-        '**Available Commands:**\n\n' +
-            '• `/help` - Show this help message\n' +
-            '• `/time` - Get the current time\n\n' +
-            '**Message Triggers:**\n\n' +
-            "• Mention me - I'll respond\n" +
-            "• React with 👋 - I'll wave back" +
-            '• Say "hello" - I\'ll greet you back\n' +
-            '• Say "ping" - I\'ll show latency\n' +
-            '• Say "react" - I\'ll add a reaction\n',
+        `🎲 **Welcome to the Wager Bot!**\n\n` +
+            `Create and accept wagers with other users. Stakes are held in escrow until settlement.\n\n` +
+            `**Available Commands:**\n` +
+            `• \`/create\` - Create a new wager\n` +
+            `• \`/browse\` - View available wagers\n` +
+            `• \`/mywagers\` - View your active wagers\n` +
+            `• \`/history\` - View completed wagers\n` +
+            `• \`/balance\` - Check your balance\n` +
+            `• \`/cancel <wager_id>\` - Cancel your unwagered bet\n` +
+            `• \`/dispute <wager_id> <reason>\` - Open dispute\n\n` +
+            `**How it works:**\n` +
+            `1. Create a wager with a stake amount and select 1-4 admins\n` +
+            `2. Someone accepts your wager (they must agree to your admins)\n` +
+            `3. After the event time, one of the agreed admins settles the wager\n` +
+            `4. Winner receives payout (both stakes minus 5% platform fee)\n\n` +
+            `**Admin System:** Each wager has 1-4 admins that both parties agree on. ` +
+            `These admins are responsible for settling disputes and determining winners.\n\n` +
+            `**Deposits:** Use \`/deposit\` to learn how to add funds to your balance.`,
     )
 })
 
-bot.onSlashCommand('time', async (handler, { channelId }) => {
-    const currentTime = new Date().toLocaleString()
-    await handler.sendMessage(channelId, `Current time: ${currentTime} ⏰`)
+bot.onSlashCommand('create', async (handler, event) => {
+    await handleCreateWager(handler, event as typeof event & { args: string[] })
 })
 
-bot.onMessage(async (handler, { message, channelId, eventId, createdAt }) => {
-    if (message.includes('hello')) {
-        await handler.sendMessage(channelId, 'Hello there! 👋')
-        return
-    }
-    if (message.includes('ping')) {
-        const now = new Date()
-        await handler.sendMessage(channelId, `Pong! 🏓 ${now.getTime() - createdAt.getTime()}ms`)
-        return
-    }
-    if (message.includes('react')) {
-        await handler.sendReaction(channelId, eventId, '👍')
+bot.onSlashCommand('browse', async (handler, event) => {
+    await handleBrowseWagers(handler, event)
+})
+
+// Handle accept command (not in commands.ts since it's dynamic)
+bot.onMessage(async (handler, event) => {
+    const { message } = event
+    // Check for /accept command pattern
+    const acceptMatch = message.match(/^\/accept\s+(\S+)\s+(.+)$/i)
+    if (acceptMatch) {
+        const [, wagerId, prediction] = acceptMatch
+        await handleAcceptWager(handler, {
+            ...event,
+            args: [wagerId, prediction],
+        })
         return
     }
 })
 
-bot.onReaction(async (handler, { reaction, channelId }) => {
-    if (reaction === '👋') {
-        await handler.sendMessage(channelId, 'I saw your wave! 👋')
+bot.onSlashCommand('mywagers', async (handler, event) => {
+    await handleMyWagers(handler, event)
+})
+
+bot.onSlashCommand('history', async (handler, event) => {
+    await handleHistory(handler, event)
+})
+
+bot.onSlashCommand('balance', async (handler, event) => {
+    await handleBalance(handler, event)
+})
+
+bot.onSlashCommand('deposit', async (handler, event) => {
+    await handleDeposit(handler, event)
+})
+
+bot.onSlashCommand('cancel', async (handler, event) => {
+    await handleCancelWager(handler, event as typeof event & { args: string[] })
+})
+
+bot.onSlashCommand('dispute', async (handler, event) => {
+    await handleDisputeWager(handler, event as typeof event & { args: string[] })
+})
+
+// Admin Commands
+bot.onSlashCommand('admin', async (handler, event) => {
+    await handleAdminDashboard(handler, event)
+})
+
+// Handle admin settle command (dynamic)
+bot.onMessage(async (handler, event) => {
+    const { message, channelId, userId } = event
+
+    const settleMatch = message.match(/^\/settle\s+(\S+)\s+(\S+)$/i)
+    if (settleMatch) {
+        const [, wagerId, winnerId] = settleMatch
+        await handleSettleWager(handler, {
+            ...event,
+            args: [wagerId, winnerId],
+        })
+        return
+    }
+
+    const tieMatch = message.match(/^\/tie\s+(\S+)$/i)
+    if (tieMatch) {
+        const [, wagerId] = tieMatch
+        await handleTieWager(handler, {
+            ...event,
+            args: [wagerId],
+        })
+        return
+    }
+
+    const resolveMatch = message.match(/^\/resolve\s+(\S+)\s+(\S+)$/i)
+    if (resolveMatch) {
+        const [, disputeId, action] = resolveMatch
+        await handleResolveDispute(handler, {
+            ...event,
+            args: [disputeId, action],
+        })
+        return
+    }
+})
+
+// Handle tips (deposits)
+bot.onTip(async (handler, event) => {
+    const { channelId, receiverAddress, userId, amount } = event
+
+    // Check if tip is to the bot
+    if (receiverAddress === bot.appAddress) {
+        const user = storage.getOrCreateUser(userId)
+        user.balance += amount
+        storage.updateUser(userId, { balance: user.balance })
+
+        const depositTx: Transaction = {
+            id: generateTransactionId(),
+            userId,
+            type: 'deposit',
+            amount,
+            status: 'completed',
+            timestamp: new Date(),
+        }
+        storage.createTransaction(depositTx)
+
+        await handler.sendMessage(
+            channelId,
+            `✅ **Deposit Received!**\n\n` +
+                `You deposited ${formatAmount(amount)}\n` +
+                `New balance: ${formatAmount(user.balance)}\n\n` +
+                `Use \`/balance\` to check your balance anytime.`,
+        )
     }
 })
 
 const app = bot.start()
+
+// Health check endpoint for deployment platforms
+app.get('/health', (c) => {
+    return c.json({
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        botAddress: bot.appAddress,
+        gasWallet: bot.botId,
+    })
+})
+
+// Graceful shutdown handling
+process.on('SIGTERM', async () => {
+    console.log('SIGTERM received, shutting down gracefully...')
+    process.exit(0)
+})
+
+process.on('SIGINT', async () => {
+    console.log('SIGINT received, shutting down gracefully...')
+    process.exit(0)
+})
+
 export default app

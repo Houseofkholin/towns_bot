@@ -1,106 +1,130 @@
-# Quickstart Bot
+# Wager Bot - Decentralized Betting System
 
-A simple, barebones bot example perfect for beginners learning to build Towns bots.
+A Towns Protocol bot for creating and managing wagers with per-wager admin systems. Users can create bets, accept wagers, and have disputes settled by mutually agreed-upon admins.
 
-# Features
+## Features
 
-- **Slash commands**: Registering and handling `/commands`
-- **Message handling**: Detecting keywords in messages
-- **Sending messages**: Posting messages to channels
-- **Adding reactions**: Attaching emoji reactions to messages
-- **Reaction events**: Responding to user reactions
+- 🎲 **Create Wagers** - Set up bets with custom descriptions, stakes, and predictions
+- 👥 **Per-Wager Admins** - Each wager has 1-4 admins that both parties agree on
+- 💰 **Escrow System** - Stakes are locked until settlement
+- ⚖️ **Dispute Resolution** - 24-hour dispute window with admin review
+- 📊 **Balance Management** - Deposit funds via tips, track balances
+- 🔒 **Secure** - Only agreed admins can settle disputes
 
-## Slash Commands
+## Quick Start
 
-- `/help` - Shows available commands and message triggers
-- `/time` - Displays the current server time
+### 1. Setup
 
-## Message Triggers
+```bash
+# Clone repository
+git clone <your-repo-url>
+cd my-towns-bot
 
-- Say "hello" - Bot greets you back
-- Say "ping" - Bot responds with "Pong!" and latency
-- Say "react" - Bot adds a thumbs up reaction to your message
+# Install dependencies
+bun install
 
-You will need to mention the bot if you're using the `Mentions, Commands, Replies & Reactions` message behavior for your bot.
+# Configure environment
+cp .env.sample .env
+# Edit .env with your credentials from https://app.towns.com/developer
+```
 
-## Reaction Handling
+### 2. Run Locally
 
-- React with 👋 to any message - Bot responds with "I saw your wave!"
+```bash
+# Development mode (with watch)
+bun run dev
 
-# Setup
+# Production mode
+bun run start
+```
 
-1. Copy `.env.sample` to `.env` and fill in your credentials:
+### 3. Deploy
 
-   ```bash
-   cp .env.sample .env
-   ```
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed deployment instructions.
 
-2. Install dependencies:
+**Quick Deploy to Render:**
+1. Connect your Git repo to Render
+2. Set build command: `bun install`
+3. Set start command: `bun run start`
+4. Add environment variables: `APP_PRIVATE_DATA`, `JWT_SECRET`
+5. Set webhook URL in Developer Portal: `https://your-app.onrender.com/webhook`
 
-   ```bash
-   bun install
-   ```
+## Commands
 
-3. Run the bot:
-   ```bash
-   bun run dev
-   ```
+### User Commands
+- `/start` - Welcome message and instructions
+- `/create` - Create a new wager (with 1-4 admins)
+- `/browse` - View available wagers
+- `/accept` - Accept a wager (must agree to admins)
+- `/mywagers` - View your active wagers
+- `/history` - View completed wagers
+- `/balance` - Check your balance
+- `/deposit` - Learn how to deposit funds
+- `/cancel` - Cancel unwagered bet
+- `/dispute` - Open dispute on settled wager
 
-# Environment Variables
+### Admin Commands
+- `/admin` - View wagers where you're an admin
+- `/settle` - Settle a wager (select winner)
+- `/tie` - Mark wager as tie (refund both)
+- `/resolve` - Resolve a dispute
 
-Required variables in `.env`:
+## Environment Variables
 
+Required:
 - `APP_PRIVATE_DATA` - Your Towns app private data (base64 encoded)
 - `JWT_SECRET` - JWT secret for webhook authentication
-- `PORT` - Port to run the bot on (optional, defaults to 5123)
 
-# Usage
+Optional:
+- `PORT` - Port to run the bot on (default: 5123)
+- `BASE_RPC_URL` - Base network RPC endpoint
+- `DATABASE_URL` - Database connection string
 
-Once the bot is running, installed to a space and added to a channel:
+## Documentation
 
-**Try the slash commands:**
+- [HOW_IT_WORKS.md](./HOW_IT_WORKS.md) - Complete system explanation
+- [DEPLOYMENT.md](./DEPLOYMENT.md) - Deployment guide
+- [PAYMENT_FLOW.md](./PAYMENT_FLOW.md) - Payment system details
 
-- `/help` - See all available features
-- `/time` - Get the current time
+## Code Structure
 
-**Try the message triggers:**
+```
+src/
+├── index.ts          # Main bot logic and event handlers
+├── commands.ts       # Slash command definitions
+├── types.ts          # TypeScript type definitions
+├── storage.ts        # In-memory storage (replace with DB for production)
+├── utils.ts          # Helper functions and validations
+├── wagerHandlers.ts  # User-facing command handlers
+└── adminHandlers.ts  # Admin command handlers
+```
 
-- Type "hello" anywhere in your message
-- Type "ping" to check bot latency
-- Type "react" to get a reaction
+## Development
 
-**Try reactions:**
+```bash
+# Type checking
+bun run typecheck
 
-- Add a 👋 reaction to any message
+# Linting
+bun run lint
 
-# Code Structure
+# Run tests
+bun run test-bot.ts
+```
 
-The bot consists of two main files:
+## Production Considerations
 
-## `src/commands.ts`
+⚠️ **Current Implementation:**
+- Uses in-memory storage (data lost on restart)
+- For production, implement database persistence
+- Consider on-chain escrow for true security
 
-Defines the slash commands available to users. Commands registered here appear in the slash command menu.
+✅ **Ready for Production:**
+- Health check endpoint (`/health`)
+- Graceful shutdown handling
+- Error handling and validation
+- Transaction logging
 
-## `src/index.ts`
+## License
 
-Main bot logic with:
-
-1. **Bot initialization** (`makeTownsBot`) - Creates bot instance with credentials and commands
-2. **Slash command handlers** (`onSlashCommand`) - Handle `/help` and `/time` commands
-3. **Message handler** (`onMessage`) - Respond to message keywords (hello, ping, react)
-4. **Reaction handler** (`onReaction`) - Respond to emoji reactions (👋)
-5. **Bot server setup** (`bot.start()`) - Starts the bot server with a Hono HTTP server
-
-## Extending this Bot
-
-To add your own features:
-
-1. **Add a slash command:**
-   - Add to `src/commands.ts`
-   - Go to `src/index.ts` and create a handler with `bot.onSlashCommand('yourcommand', async (handler, event) => { ... })`
-
-2. **Add message triggers:**
-   - Add conditions in the `bot.onMessage()` handler
-
-3. **Handle more events:**
-   - Use `bot.onReaction()`, `bot.onMessageEdit()`, `bot.onChannelJoin()`, etc.
+MIT
