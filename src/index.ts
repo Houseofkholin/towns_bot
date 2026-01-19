@@ -1,6 +1,6 @@
 import { makeTownsBot } from '@towns-protocol/bot'
-import commands from './commands.js'
-import { storage } from './storage.js'
+import commands from './commands'
+import { storage } from './storage'
 import {
     handleCreateWager,
     handleBrowseWagers,
@@ -11,15 +11,15 @@ import {
     handleDeposit,
     handleCancelWager,
     handleDisputeWager,
-} from './wagerHandlers.js'
+} from './wagerHandlers'
 import {
     handleAdminDashboard,
     handleSettleWager,
     handleTieWager,
     handleResolveDispute,
-} from './adminHandlers.js'
-import { generateTransactionId, formatAmount } from './utils.js'
-import type { Transaction } from './types.js'
+} from './adminHandlers'
+import { generateTransactionId, formatAmount } from './utils'
+import type { Transaction } from './types'
 
 const bot = await makeTownsBot(process.env.APP_PRIVATE_DATA!, process.env.JWT_SECRET!, {
     commands,
