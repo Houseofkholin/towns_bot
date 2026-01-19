@@ -1,4 +1,4 @@
-import type { Wager, User, Transaction, Dispute, PlatformStats } from './types'
+import type { Wager, User, Transaction, Dispute, PlatformStats } from './types.js'
 
 // In-memory storage - replace with database in production
 class Storage {

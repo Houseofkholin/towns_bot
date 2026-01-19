@@ -1,5 +1,5 @@
 import type { BotHandler } from '@towns-protocol/bot'
-import { storage } from './storage'
+import { storage } from './storage.js'
 import {
     generateWagerId,
     generateTransactionId,
@@ -13,8 +13,8 @@ import {
     formatWagerStatus,
     formatDate,
     hasSufficientBalance,
-} from './utils'
-import type { Wager, Transaction } from './types'
+} from './utils.js'
+import type { Wager, Transaction } from './types.js'
 import { parseEther } from 'viem'
 
 export async function handleCreateWager(

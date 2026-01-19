@@ -1,5 +1,5 @@
 import type { BotHandler } from '@towns-protocol/bot'
-import { storage } from './storage'
+import { storage } from './storage.js'
 import {
     generateTransactionId,
     calculateWinnerPayout,
@@ -7,8 +7,8 @@ import {
     formatWagerStatus,
     formatDate,
     isWagerAdmin,
-} from './utils'
-import type { Transaction } from './types'
+} from './utils.js'
+import type { Transaction } from './types.js'
 
 export async function handleAdminDashboard(
     handler: BotHandler,

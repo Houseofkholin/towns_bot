@@ -1,6 +1,6 @@
 import { makeTownsBot } from '@towns-protocol/bot'
-import commands from './commands'
-import { storage } from './storage'
+import commands from './commands.js'
+import { storage } from './storage.js'
 import {
     handleCreateWager,
     handleBrowseWagers,
@@ -11,15 +11,15 @@ import {
     handleDeposit,
     handleCancelWager,
     handleDisputeWager,
-} from './wagerHandlers'
+} from './wagerHandlers.js'
 import {
     handleAdminDashboard,
     handleSettleWager,
     handleTieWager,
     handleResolveDispute,
-} from './adminHandlers'
-import { generateTransactionId, formatAmount } from './utils'
-import type { Transaction } from './types'
+} from './adminHandlers.js'
+import { generateTransactionId, formatAmount } from './utils.js'
+import type { Transaction } from './types.js'
 
 const bot = await makeTownsBot(process.env.APP_PRIVATE_DATA!, process.env.JWT_SECRET!, {
     commands,
@@ -223,6 +223,11 @@ app.get('/health', (c) => {
         botAddress: bot.appAddress,
         gasWallet: bot.botId,
     })
+})
+
+// After your /webhook route
+app.get('/.well-known/agent-metadata.json', async (c) => {
+  return c.json(await bot.getIdentityMetadata())
 })
 
 // Graceful shutdown handling

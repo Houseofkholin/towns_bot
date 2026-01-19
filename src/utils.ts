@@ -1,5 +1,5 @@
-import { storage } from './storage'
-import type { Wager, Transaction, User } from './types'
+import { storage } from './storage.js'
+import type { Wager, Transaction, User } from './types.js'
 
 const PLATFORM_FEE_PERCENT = 5n // 5%
 const MIN_STAKE = 1000000000000000n // 0.001 ETH/stars (1e15 wei)
