@@ -53,6 +53,9 @@ export async function handleCreateWager(
     const adminArgs = args.slice(4).join(' ').split(/[,\s]+/).filter(Boolean)
     const proposedAdmins = adminArgs.map(addr => addr.trim()).filter(addr => addr.startsWith('0x'))
 
+    console.log('PROPOSED ADMINS:', proposedAdmins)
+    console.log('ADMIN ARGS:', adminArgs)
+
     if (isNaN(expirationHours) || expirationHours < 1 || expirationHours > 168) {
         await handler.sendMessage(
             channelId,
