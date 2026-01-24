@@ -22,7 +22,11 @@ export async function handleCreateWager(
     event: { channelId: string; userId: string; args: string[] },
 ) {
     const { channelId, userId, args } = event
-
+    console.debug('CREATE DEBUG:', {
+        channelId: channelId,
+        userId: userId,
+        args: args,
+    })
     console.log('CREATE DEBUG:', {
         channelId: channelId,
         userId: userId,
@@ -44,11 +48,11 @@ export async function handleCreateWager(
         return
     }
 
-    console.log('CREATE DEBUG:', {
-        argsLength: args.length,
-        args: args,
-        userId: userId,
-    })
+    let len = args.length - 1;
+    await handler.sendMessage(
+        args.length.toString(),
+        args[0],
+    )
 
     const description = args[0]
     const stakeStr = args[1]
