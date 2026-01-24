@@ -38,6 +38,12 @@ export async function handleCreateWager(
         return
     }
 
+    console.log('CREATE DEBUG:', {
+        argsLength: args.length,
+        args: args,
+        userId: userId,
+    })
+
     const description = args[0]
     const stakeStr = args[1]
     const prediction = args[2]
