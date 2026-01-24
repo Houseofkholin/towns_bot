@@ -23,6 +23,12 @@ export async function handleCreateWager(
 ) {
     const { channelId, userId, args } = event
 
+    console.log('CREATE DEBUG:', {
+        channelId: channelId,
+        userId: userId,
+        args: args,
+    })
+
     if (args.length < 5) {
         await handler.sendMessage(
             channelId,
