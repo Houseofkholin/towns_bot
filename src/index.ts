@@ -97,6 +97,11 @@ bot.onSlashCommand('start', async (handler, { channelId, userId }) => {
 })
 
 bot.onSlashCommand('create', async (handler, event) => {
+    console.log('=== WRAPPER CALLED ===')
+    console.log('Event keys:', Object.keys(event))
+    console.log('Full event:', JSON.stringify(event, null, 2))
+    console.log('event.args:', event.args)
+    
     await handleCreateWager(handler, event as typeof event & { args: string[] })
 })
 
