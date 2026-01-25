@@ -5,6 +5,8 @@ import {
     handleCreateWager,
     handleBrowseWagers,
     handleAcceptWager,
+    handleCreateWagerResponse,
+    handleAcceptWagerResponse,
     handleMyWagers,
     handleHistory,
     handleBalance,
@@ -103,6 +105,43 @@ bot.onSlashCommand('create', async (handler, event) => {
     console.log('event.args:', event.args)
     
     await handleCreateWager(handler, event as typeof event & { args: string[] })
+})
+
+// Handle form responses
+bot.onInteractionResponse(async (handler, event) => {
+    if (event.response.payload.content?.case !== 'form') return
+    
+    const form = event.response.payload.content.value
+    const formData = new Map<string, string>()
+    
+    // Extract form data
+    for (const component of form.components) {
+        if (component.component.case === 'textInput') {
+            formData.set(component.id, component.component.value.value)
+        }
+        if (component.component.case === 'button') {
+            formData.set(component.id, 'clicked')
+        }
+    }
+    
+    const userId = event.userId as `0x${string}`
+    
+    // Route to appropriate handler
+    if (form.requestId.startsWith('create-wager')) {
+        await handleCreateWagerResponse(handler, {
+            channelId: event.channelId,
+            userId,
+            formData
+        })
+    } else if (form.requestId.startsWith('accept-wager')) {
+        const wagerId = form.requestId.replace('accept-wager-', '')
+        await handleAcceptWagerResponse(handler, {
+            channelId: event.channelId,
+            userId,
+            wagerId,
+            formData
+        })
+    }
 })
 
 bot.onSlashCommand('browse', async (handler, event) => {

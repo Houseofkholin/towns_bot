@@ -6,98 +6,97 @@ import {
     generateDisputeId,
     validateStakeAmount,
     formatAmount,
-    calculateWinnerPayout,
     canAcceptWager,
     canCancelWager,
     canDisputeWager,
     formatWagerStatus,
     formatDate,
-    hasSufficientBalance,
 } from './utils'
 import type { Wager, Transaction } from './types'
 import { parseEther } from 'viem'
 
 export async function handleCreateWager(
     handler: BotHandler,
-    event: { channelId: string; userId: string; args: string[] },
+    event: { channelId: string; userId: string },
 ) {
-    const { channelId, userId, args } = event
+    const { channelId, userId } = event
 
-    console.log('args', args)
-    
-    if (args.length < 3) {
-        await handler.sendMessage(
-            channelId,
-            '**Usage:** `/create <stake> <hours> <admin1> [admin2] [...] <description>`\n\n' +
-            '**Example:** `/create 0.1 24 0x1234567890123456789012345678901234567890 Will it rain tomorrow?`\n\n' +
-            '**Parameters:**\n' +
-            '• Stake: Amount in ETH (e.g., 0.1)\n' +
-            '• Hours: Hours until expiration (1-168)\n' +
-            '• Admins: 1-4 admin addresses (space separated)\n' +
-            '• Description: Everything after admins\n\n' +
-            '**Multi-admin example:**\n' +
-            '`/create 0.5 48 0x123... 0x456... Bitcoin hits 100k by Friday`'
-        )
+    // Send a form for creating a wager
+    await handler.sendInteractionRequest(channelId, {
+        type: 'form',
+        id: `create-wager-${Date.now()}`,
+        components: [
+            { id: 'description', type: 'textInput', placeholder: 'What are you wagering on?' },
+            { id: 'stake', type: 'textInput', placeholder: 'Stake amount (e.g., 0.1)' },
+            { id: 'hours', type: 'textInput', placeholder: 'Hours until expiration (1-168)' },
+            { id: 'admin1', type: 'textInput', placeholder: 'Admin address 1 (0x...)' },
+            { id: 'admin2', type: 'textInput', placeholder: 'Admin address 2 (optional)' },
+            { id: 'submit', type: 'button', label: 'Create Wager' },
+            { id: 'cancel', type: 'button', label: 'Cancel' }
+        ],
+        recipient: userId as `0x${string}`
+    })
+}
+
+export async function handleCreateWagerResponse(
+    handler: BotHandler,
+    event: { channelId: string; userId: string; formData: Map<string, string> }
+) {
+    const { channelId, userId, formData } = event
+
+    if (formData.get('cancel')) {
+        await handler.sendMessage(channelId, '❌ Wager creation cancelled')
         return
     }
 
-    const stakeStr = args[0]
-    const expirationHours = parseInt(args[1], 10)
+    const description = formData.get('description')?.trim()
+    const stakeStr = formData.get('stake')?.trim()
+    const hoursStr = formData.get('hours')?.trim()
+    const admin1 = formData.get('admin1')?.trim()
+    const admin2 = formData.get('admin2')?.trim()
 
-    console.log('expirationHours', expirationHours)
+    if (!description || description.length < 5) {
+        await handler.sendMessage(channelId, '❌ Description must be at least 5 characters')
+        return
+    }
 
+    if (!stakeStr) {
+        await handler.sendMessage(channelId, '❌ Stake amount is required')
+        return
+    }
+
+    if (!hoursStr) {
+        await handler.sendMessage(channelId, '❌ Expiration hours is required')
+        return
+    }
+
+    const expirationHours = parseInt(hoursStr, 10)
     if (isNaN(expirationHours) || expirationHours < 1 || expirationHours > 168) {
-        await handler.sendMessage(
-            channelId,
-            '❌ Expiration must be between 1 and 168 hours (1 week)'
-        )
+        await handler.sendMessage(channelId, '❌ Expiration must be between 1 and 168 hours')
         return
     }
 
     const proposedAdmins: string[] = []
-    let descriptionStartIndex = 2
-
-    for (let i = 2; i < args.length; i++) {
-        if (args[i].startsWith('0x') && /^0x[a-fA-F0-9]{40}$/.test(args[i])) {
-            proposedAdmins.push(args[i])
-            descriptionStartIndex = i + 1
-        } else {
-            break
-        }
-    }
+    if (admin1) proposedAdmins.push(admin1)
+    if (admin2) proposedAdmins.push(admin2)
 
     if (proposedAdmins.length === 0) {
-        await handler.sendMessage(
-            channelId,
-            '❌ You must specify at least 1 admin address (1-4 admins allowed)'
-        )
+        await handler.sendMessage(channelId, '❌ At least 1 admin address is required')
         return
     }
 
-    if (proposedAdmins.length > 4) {
+    // Validate admin addresses
+    const invalidAdmins = proposedAdmins.filter(addr => !/^0x[a-fA-F0-9]{40}$/.test(addr))
+    if (invalidAdmins.length > 0) {
         await handler.sendMessage(
             channelId,
-            `❌ Maximum 4 admins allowed. You specified ${proposedAdmins.length}`
+            `❌ Invalid admin addresses: ${invalidAdmins.join(', ')}`
         )
         return
     }
 
     if (proposedAdmins.includes(userId)) {
-        await handler.sendMessage(
-            channelId,
-            '❌ You cannot be an admin of your own wager'
-        )
-        return
-    }
-
-    const description = args.slice(descriptionStartIndex).join(' ')
-
-    if (!description || description.length < 2) {
-        await handler.sendMessage(
-            channelId,
-            '❌ Please provide a description after the admin addresses\n' +
-            'Example: `/create 0.1 24 0x123... Will it rain tomorrow?`'
-        )
+        await handler.sendMessage(channelId, '❌ You cannot be an admin of your own wager')
         return
     }
 
@@ -119,7 +118,7 @@ export async function handleCreateWager(
     if (user.balance < stakeAmount) {
         await handler.sendMessage(
             channelId,
-            `❌ Insufficient balance. You have ${formatAmount(user.balance)}, need ${formatAmount(stakeAmount)}`
+            `❌ Insufficient balance\nYou have: ${formatAmount(user.balance)}\nNeed: ${formatAmount(stakeAmount)}`
         )
         return
     }
@@ -163,10 +162,10 @@ export async function handleCreateWager(
         `**Description:** ${description}\n` +
         `**Stake:** ${formatAmount(stakeAmount)}\n` +
         `**Expires:** ${formatDate(expirationTime)}\n` +
-        `**Proposed Admins (${proposedAdmins.length}):**\n` +
+        `**Admins (${proposedAdmins.length}):**\n` +
         proposedAdmins.map((addr, i) => `  ${i + 1}. \`${addr.slice(0, 10)}...${addr.slice(-8)}\``).join('\n') +
         `\n\n💡 Share ID: \`${wagerId}\`\n` +
-        `Accept with: \`/accept ${wagerId} <your prediction>\``
+        `Others can accept with: \`/accept ${wagerId}\``
     )
 }
 
@@ -196,7 +195,7 @@ export async function handleBrowseWagers(
         message += `_... and ${openWagers.length - 10} more wagers_\n\n`
     }
 
-    message += `Use \`/accept <wager_id> <your_prediction>\` to accept`
+    message += `Use \`/accept\` to accept a wager`
 
     await handler.sendMessage(channelId, message)
 }
@@ -207,30 +206,54 @@ export async function handleAcceptWager(
 ) {
     const { channelId, userId, args } = event
 
-    if (args.length < 2) {
-        await handler.sendMessage(
-            channelId,
-            '**Usage:** `/accept <wager_id> <your_prediction>`\n\n' +
-            '**Example:** `/accept wager_123456 I think it will not rain`\n\n' +
-            'Everything after the wager ID is your prediction/counter-position.'
-        )
+    // If wager ID provided, show that wager's form
+    if (args.length > 0) {
+        const wagerId = args[0]
+        const wager = storage.getWager(wagerId)
+        
+        if (!wager) {
+            await handler.sendMessage(channelId, `❌ Wager not found: \`${wagerId}\``)
+            return
+        }
+
+        await handler.sendInteractionRequest(channelId, {
+            type: 'form',
+            id: `accept-wager-${wagerId}`,
+            components: [
+                { id: 'prediction', type: 'textInput', placeholder: 'Your prediction/counter-position' },
+                { id: 'accept', type: 'button', label: 'Accept Wager' },
+                { id: 'cancel', type: 'button', label: 'Cancel' }
+            ],
+            recipient: userId as `0x${string}`
+        })
         return
     }
 
-    const wagerId = args[0]
-    const prediction = args.slice(1).join(' ')
+    // Otherwise show list of wagers to accept
+    await handleBrowseWagers(handler, event)
+}
+
+export async function handleAcceptWagerResponse(
+    handler: BotHandler,
+    event: { channelId: string; userId: string; wagerId: string; formData: Map<string, string> }
+) {
+    const { channelId, userId, wagerId, formData } = event
+
+    if (formData.get('cancel')) {
+        await handler.sendMessage(channelId, '❌ Cancelled')
+        return
+    }
+
+    const prediction = formData.get('prediction')?.trim()
 
     if (!prediction || prediction.length < 3) {
-        await handler.sendMessage(
-            channelId,
-            '❌ Please provide your prediction after the wager ID'
-        )
+        await handler.sendMessage(channelId, '❌ Please provide your prediction')
         return
     }
 
     const wager = storage.getWager(wagerId)
     if (!wager) {
-        await handler.sendMessage(channelId, `❌ Wager not found: \`${wagerId}\``)
+        await handler.sendMessage(channelId, `❌ Wager not found`)
         return
     }
 
