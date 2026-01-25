@@ -22,6 +22,8 @@ export async function handleCreateWager(
     event: { channelId: string; userId: string; args: string[] },
 ) {
     const { channelId, userId, args } = event
+
+    console.log('args', args)
     
     if (args.length < 3) {
         await handler.sendMessage(
@@ -41,6 +43,8 @@ export async function handleCreateWager(
 
     const stakeStr = args[0]
     const expirationHours = parseInt(args[1], 10)
+
+    console.log('expirationHours', expirationHours)
 
     if (isNaN(expirationHours) || expirationHours < 1 || expirationHours > 168) {
         await handler.sendMessage(
