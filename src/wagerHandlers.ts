@@ -22,63 +22,57 @@ export async function handleCreateWager(
     event: { channelId: string; userId: string; args: string[] },
 ) {
     const { channelId, userId, args } = event
-    console.debug('CREATE DEBUG:', {
-        channelId: channelId,
-        userId: userId,
-        args: args,
-    })
-    console.log('CREATE DEBUG:', {
-        channelId: channelId,
-        userId: userId,
-        args: args,
-    })
 
-    if (args.length < 5) {
+    // NEW FORMAT: /create <stake_amount> <expiration_hours> <admin1> [admin2] [admin3] [admin4] <rest is description and prediction>
+    // Example: /create 0.1 24 0x123... 0x456... Will it rain tomorrow? I predict yes
+    
+    if (args.length < 3) {
         await handler.sendMessage(
             channelId,
-            '**Usage:** `/create <description> <stake_amount> <your_prediction> <expiration_hours> <admin1> [admin2] [admin3] [admin4]`\n\n' +
-                '**Example:** `/create "Will it rain tomorrow?" 0.1 "Yes, it will rain" 24 0x123... 0x456...`\n\n' +
-                '• Description: What you are wagering on\n' +
-                '• Stake Amount: Amount in ETH/Stars (e.g., 0.1)\n' +
-                '• Your Prediction: Your answer/outcome\n' +
-                '• Expiration Hours: Hours until wager expires if not accepted\n' +
-                '• Admins: 1-4 admin addresses (comma or space separated) who will settle disputes\n\n' +
-                '**Note:** The acceptor must agree to these admins when accepting the wager.',
+            '**Usage:** `/create <stake> <hours> <admin1> [admin2] [...] <description and prediction>`\n\n' +
+                '**Example:** `/create 0.1 24 0x1234567890123456789012345678901234567890 Will it rain tomorrow? I predict yes`\n\n' +
+                '**Parameters:**\n' +
+                '• Stake: Amount in ETH (e.g., 0.1)\n' +
+                '• Hours: Hours until expiration (1-168)\n' +
+                '• Admins: 1-4 admin addresses (space separated)\n' +
+                '• Description: Everything after admins is your wager description and prediction\n\n' +
+                '**Multi-admin example:**\n' +
+                '`/create 0.5 48 0x123... 0x456... 0x789... Bitcoin hits 100k by Friday`'
         )
         return
     }
 
-    let len = args.length - 1;
-    await handler.sendMessage(
-        args.length.toString(),
-        args[0],
-    )
-
-    const description = args[0]
-    const stakeStr = args[1]
-    const prediction = args[2]
-    const expirationHours = parseInt(args[3], 10)
-    
-    // Parse admin addresses (can be space or comma separated)
-    const adminArgs = args.slice(4).join(' ').split(/[,\s]+/).filter(Boolean)
-    const proposedAdmins = adminArgs.map(addr => addr.trim()).filter(addr => addr.startsWith('0x'))
-
-    console.log('PROPOSED ADMINS:', proposedAdmins)
-    console.log('ADMIN ARGS:', adminArgs)
+    const stakeStr = args[0]
+    const expirationHours = parseInt(args[1], 10)
 
     if (isNaN(expirationHours) || expirationHours < 1 || expirationHours > 168) {
         await handler.sendMessage(
             channelId,
-            'Expiration must be between 1 and 168 hours (1 week)',
+            '❌ Expiration must be between 1 and 168 hours (1 week)'
         )
         return
+    }
+
+    // Find admin addresses (they start with 0x)
+    const proposedAdmins: string[] = []
+    let descriptionStartIndex = 2
+
+    for (let i = 2; i < args.length; i++) {
+        if (args[i].startsWith('0x') && /^0x[a-fA-F0-9]{40}$/.test(args[i])) {
+            proposedAdmins.push(args[i])
+            descriptionStartIndex = i + 1
+        } else {
+            // First non-address argument, stop looking for admins
+            break
+        }
     }
 
     // Validate admins
     if (proposedAdmins.length === 0) {
         await handler.sendMessage(
             channelId,
-            'You must specify at least 1 admin address (1-4 admins allowed)',
+            '❌ You must specify at least 1 admin address after the hours parameter\n' +
+                'Example: `/create 0.1 24 0x1234567890123456789012345678901234567890 Your wager description`'
         )
         return
     }
@@ -86,18 +80,7 @@ export async function handleCreateWager(
     if (proposedAdmins.length > 4) {
         await handler.sendMessage(
             channelId,
-            'Maximum 4 admins allowed. You specified ' + proposedAdmins.length,
-        )
-        return
-    }
-
-    // Validate admin addresses
-    const invalidAdmins = proposedAdmins.filter(addr => !/^0x[a-fA-F0-9]{40}$/.test(addr))
-    if (invalidAdmins.length > 0) {
-        await handler.sendMessage(
-            channelId,
-            `Invalid admin addresses: ${invalidAdmins.join(', ')}\n` +
-                'Admin addresses must be valid Ethereum addresses (0x followed by 40 hex characters)',
+            `❌ Maximum 4 admins allowed. You specified ${proposedAdmins.length}`
         )
         return
     }
@@ -106,7 +89,19 @@ export async function handleCreateWager(
     if (proposedAdmins.includes(userId)) {
         await handler.sendMessage(
             channelId,
-            'You cannot be an admin of your own wager. Please select other users as admins.',
+            '❌ You cannot be an admin of your own wager'
+        )
+        return
+    }
+
+    // Everything after admins is the description
+    const description = args.slice(descriptionStartIndex).join(' ')
+    
+    if (!description || description.length < 5) {
+        await handler.sendMessage(
+            channelId,
+            '❌ Please provide a description after the admin addresses\n' +
+                'Example: `/create 0.1 24 0x123... Will it rain tomorrow? I predict yes`'
         )
         return
     }
@@ -114,14 +109,18 @@ export async function handleCreateWager(
     let stakeAmount: bigint
     try {
         stakeAmount = parseEther(stakeStr)
-    } catch {
-        await handler.sendMessage(channelId, 'Invalid stake amount. Use a number like 0.1')
+    } catch (error) {
+        await handler.sendMessage(
+            channelId,
+            `❌ Invalid stake amount. Use a number like 0.1\n` +
+                `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
+        )
         return
     }
 
     const validation = validateStakeAmount(stakeAmount)
     if (!validation.valid) {
-        await handler.sendMessage(channelId, validation.error!)
+        await handler.sendMessage(channelId, `❌ ${validation.error}`)
         return
     }
 
@@ -129,7 +128,7 @@ export async function handleCreateWager(
     if (user.balance < stakeAmount) {
         await handler.sendMessage(
             channelId,
-            `Insufficient balance. You have ${formatAmount(user.balance)}, need ${formatAmount(stakeAmount)}`,
+            `❌ Insufficient balance. You have ${formatAmount(user.balance)}, need ${formatAmount(stakeAmount)}`
         )
         return
     }
@@ -142,9 +141,9 @@ export async function handleCreateWager(
         id: wagerId,
         creatorId: userId,
         description,
-        creatorPrediction: prediction,
+        creatorPrediction: description, // Full description is their prediction
         stakeAmount,
-        eventTime: expirationTime, // Using expiration as event time for simplicity
+        eventTime: expirationTime,
         expirationTime,
         status: 'open',
         createdAt: now,
@@ -171,15 +170,14 @@ export async function handleCreateWager(
     await handler.sendMessage(
         channelId,
         `✅ **Wager Created!**\n\n` +
-            `**ID:** ${wagerId}\n` +
+            `**ID:** \`${wagerId}\`\n` +
             `**Description:** ${description}\n` +
-            `**Your Prediction:** ${prediction}\n` +
             `**Stake:** ${formatAmount(stakeAmount)}\n` +
             `**Expires:** ${formatDate(expirationTime)}\n` +
             `**Proposed Admins (${proposedAdmins.length}):**\n` +
-            proposedAdmins.map((addr, i) => `  ${i + 1}. ${addr.slice(0, 10)}...${addr.slice(-8)}`).join('\n') +
-            `\n\n**Note:** The acceptor must agree to these admins when accepting the wager.\n` +
-            `Share this wager ID for others to accept: \`${wagerId}\``,
+            proposedAdmins.map((addr, i) => `  ${i + 1}. \`${addr.slice(0, 10)}...${addr.slice(-8)}\``).join('\n') +
+            `\n\n💡 Share this ID for others to accept: \`${wagerId}\`\n` +
+            `Use \`/browse\` to see all open wagers`
     )
 }
 
@@ -196,25 +194,21 @@ export async function handleBrowseWagers(
         return
     }
 
-    let message = `**Available Wagers (${openWagers.length}):**\n\n`
+    let message = `**📋 Available Wagers (${openWagers.length})**\n\n`
     for (const wager of openWagers.slice(0, 10)) {
-        // Limit to 10 for readability
-        const creator = storage.getUser(wager.creatorId)
         message +=
-            `**${wager.id}**\n` +
+            `**\`${wager.id}\`**\n` +
             `📝 ${wager.description}\n` +
             `💰 Stake: ${formatAmount(wager.stakeAmount)}\n` +
-            `🎯 Creator's Prediction: ${wager.creatorPrediction}\n` +
-            `👥 Proposed Admins: ${wager.proposedAdmins.length} admin(s)\n` +
+            `👥 Admins: ${wager.proposedAdmins.length}\n` +
             `⏰ Expires: ${formatDate(wager.expirationTime)}\n\n`
     }
 
     if (openWagers.length > 10) {
-        message += `... and ${openWagers.length - 10} more wagers`
+        message += `_... and ${openWagers.length - 10} more wagers_\n\n`
     }
 
-    message += `\nUse \`/accept <wager_id> <your_prediction> agree\` to accept a wager\n` +
-        `**Note:** You must add "agree" to confirm you agree to the proposed admins.`
+    message += `Use \`/accept <wager_id> <your_prediction>\` to accept a wager`
 
     await handler.sendMessage(channelId, message)
 }
@@ -228,48 +222,27 @@ export async function handleAcceptWager(
     if (args.length < 2) {
         await handler.sendMessage(
             channelId,
-            '**Usage:** `/accept <wager_id> <your_prediction> [agree]`\n\n' +
-                '**Example:** `/accept wager_123 "No, it will not rain" agree`\n\n' +
-                '**Important:** You must add `agree` at the end to confirm you agree to the proposed admins.\n' +
-                'The wager will show the proposed admins - review them before accepting.',
+            '**Usage:** `/accept <wager_id> <your_prediction>`\n\n' +
+                '**Example:** `/accept wager_123456 I think it will not rain`\n\n' +
+                'Everything after the wager ID is your prediction/counter-position.'
         )
         return
     }
 
     const wagerId = args[0]
-    const lastArg = args[args.length - 1].toLowerCase()
-    const prediction = args.slice(1, -1).join(' ')
-    const hasAgreed = lastArg === 'agree' || lastArg === 'yes' || lastArg === 'confirm'
+    const prediction = args.slice(1).join(' ')
+
+    if (!prediction || prediction.length < 3) {
+        await handler.sendMessage(
+            channelId,
+            '❌ Please provide your prediction after the wager ID'
+        )
+        return
+    }
 
     const wager = storage.getWager(wagerId)
     if (!wager) {
-        await handler.sendMessage(channelId, 'Wager not found.')
-        return
-    }
-
-    // Show proposed admins and require agreement
-    if (!hasAgreed) {
-        await handler.sendMessage(
-            channelId,
-            `**Review Proposed Admins Before Accepting**\n\n` +
-                `**Wager:** ${wager.description}\n` +
-                `**Stake:** ${formatAmount(wager.stakeAmount)}\n` +
-                `**Proposed Admins (${wager.proposedAdmins.length}):**\n` +
-                wager.proposedAdmins.map((addr, i) => `  ${i + 1}. ${addr}`).join('\n') +
-                `\n\n**To accept this wager, you must agree to these admins.**\n` +
-                `They will be responsible for settling disputes.\n\n` +
-                `**Usage:** \`/accept ${wagerId} "${prediction || 'your prediction'}" agree\``,
-        )
-        return
-    }
-
-    // Extract prediction if it wasn't in the right place
-    const actualPrediction = prediction || args.slice(1, -1).join(' ')
-    if (!actualPrediction) {
-        await handler.sendMessage(
-            channelId,
-            'Please provide your prediction. Usage: `/accept <wager_id> <your_prediction> agree`',
-        )
+        await handler.sendMessage(channelId, '❌ Wager not found')
         return
     }
 
@@ -298,34 +271,31 @@ export async function handleAcceptWager(
     }
     storage.createTransaction(tx)
 
-    // Set agreed admins (both parties have agreed)
     storage.updateWager(wagerId, {
         acceptorId: userId,
-        acceptorPrediction: actualPrediction,
+        acceptorPrediction: prediction,
         status: 'accepted',
         acceptedAt: now,
-        agreedAdmins: wager.proposedAdmins, // Both parties agreed to these admins
+        agreedAdmins: wager.proposedAdmins,
     })
 
-    // Notify creator
     await handler.sendMessage(
         channelId,
         `✅ **Wager Accepted!**\n\n` +
-            `**Wager ID:** ${wagerId}\n` +
+            `**Wager ID:** \`${wagerId}\`\n` +
             `**Description:** ${wager.description}\n` +
-            `**Your Prediction:** ${actualPrediction}\n` +
-            `**Stake:** ${formatAmount(wager.stakeAmount)}\n` +
+            `**Your Prediction:** ${prediction}\n` +
+            `**Stake:** ${formatAmount(wager.stakeAmount)} each\n` +
+            `**Total Pool:** ${formatAmount(wager.stakeAmount * 2n)}\n` +
             `**Event Time:** ${formatDate(wager.eventTime)}\n` +
-            `**Agreed Admins (${wager.proposedAdmins.length}):**\n` +
-            wager.proposedAdmins.map((addr, i) => `  ${i + 1}. ${addr.slice(0, 10)}...${addr.slice(-8)}`).join('\n') +
-            `\n\nBoth stakes are now in escrow. The wager will be settled after the event time by one of the agreed admins.`,
+            `**Admins:** ${wager.proposedAdmins.length} agreed admin(s)\n\n` +
+            `🔒 Both stakes are now in escrow. An admin will settle this wager after the event time.`
     )
 
-    // Try to notify creator (if in DM or same channel)
     try {
         await handler.sendMessage(
             channelId,
-            `<@${wager.creatorId}> Your wager "${wager.description}" has been accepted!`,
+            `🎯 <@${wager.creatorId}> Your wager has been accepted!`,
             {
                 mentions: [{ userId: wager.creatorId, displayName: 'Creator' }],
             },
@@ -345,7 +315,7 @@ export async function handleMyWagers(handler: BotHandler, event: { channelId: st
         return
     }
 
-    let message = `**Your Active Wagers (${activeWagers.length}):**\n\n`
+    let message = `**📊 Your Active Wagers (${activeWagers.length})**\n\n`
 
     for (const wager of activeWagers) {
         const role = wager.creatorId === userId ? '👤 Creator' : '✅ Acceptor'
@@ -353,7 +323,7 @@ export async function handleMyWagers(handler: BotHandler, event: { channelId: st
         const opponent = opponentId ? storage.getUser(opponentId) : null
 
         message +=
-            `**${wager.id}** ${role}\n` +
+            `**\`${wager.id}\`** ${role}\n` +
             `📝 ${wager.description}\n` +
             `💰 Stake: ${formatAmount(wager.stakeAmount)}\n` +
             `📊 Status: ${formatWagerStatus(wager.status)}\n`
@@ -363,9 +333,9 @@ export async function handleMyWagers(handler: BotHandler, event: { channelId: st
         }
 
         if (wager.agreedAdmins && wager.agreedAdmins.length > 0) {
-            message += `👥 Admins: ${wager.agreedAdmins.length} admin(s)\n`
+            message += `👥 Admins: ${wager.agreedAdmins.length}\n`
         } else if (wager.proposedAdmins && wager.proposedAdmins.length > 0) {
-            message += `👥 Proposed Admins: ${wager.proposedAdmins.length} admin(s) (awaiting agreement)\n`
+            message += `👥 Proposed Admins: ${wager.proposedAdmins.length} (awaiting acceptance)\n`
         }
 
         if (wager.status === 'pending_settlement') {
@@ -391,7 +361,7 @@ export async function handleHistory(handler: BotHandler, event: { channelId: str
         return
     }
 
-    let message = `**Your Wager History (${completed.length}):**\n\n`
+    let message = `**📜 Your Wager History (${completed.length})**\n\n`
 
     for (const wager of completed.slice(0, 10)) {
         const role = wager.creatorId === userId ? '👤 Creator' : '✅ Acceptor'
@@ -399,7 +369,7 @@ export async function handleHistory(handler: BotHandler, event: { channelId: str
         const result = won ? '🏆 Won' : wager.status === 'cancelled' ? '❌ Cancelled' : '💔 Lost'
 
         message +=
-            `**${wager.id}** ${role} - ${result}\n` +
+            `**\`${wager.id}\`** ${role} - ${result}\n` +
             `📝 ${wager.description}\n` +
             `💰 Stake: ${formatAmount(wager.stakeAmount)}\n`
 
@@ -410,7 +380,7 @@ export async function handleHistory(handler: BotHandler, event: { channelId: str
     }
 
     if (completed.length > 10) {
-        message += `... and ${completed.length - 10} more completed wagers`
+        message += `_... and ${completed.length - 10} more completed wagers_`
     }
 
     await handler.sendMessage(channelId, message)
@@ -423,14 +393,14 @@ export async function handleBalance(handler: BotHandler, event: { channelId: str
 
     await handler.sendMessage(
         channelId,
-        `**Your Balance:**\n\n` +
-            `💰 Available: ${formatAmount(user.balance)}\n\n` +
-            `**Stats:**\n` +
-            `📊 Wagers Created: ${user.totalWagersCreated}\n` +
-            `✅ Wagers Accepted: ${user.totalWagersAccepted}\n` +
-            `🏆 Total Won: ${user.totalWon}\n` +
-            `💔 Total Lost: ${user.totalLost}\n\n` +
-            `Use \`/deposit\` to learn how to add funds.`,
+        `**💰 Your Balance**\n\n` +
+            `Available: ${formatAmount(user.balance)}\n\n` +
+            `**📊 Stats**\n` +
+            `Wagers Created: ${user.totalWagersCreated}\n` +
+            `Wagers Accepted: ${user.totalWagersAccepted}\n` +
+            `Total Won: ${user.totalWon}\n` +
+            `Total Lost: ${user.totalLost}\n\n` +
+            `Use \`/deposit\` to add funds`
     )
 }
 
@@ -439,20 +409,14 @@ export async function handleDeposit(handler: BotHandler, event: { channelId: str
 
     await handler.sendMessage(
         channelId,
-        `💰 **How to Deposit Funds**\n\n` +
-            `**Method 1: Send a Tip**\n` +
-            `1. In any channel where this bot is present, send a tip to this bot\n` +
-            `2. The tip amount will be added to your balance automatically\n` +
-            `3. You'll receive a confirmation message\n\n` +
-            `**How to Send a Tip:**\n` +
-            `• Long-press on any message from this bot\n` +
-            `• Select "Tip" or the tip icon\n` +
-            `• Enter the amount you want to deposit\n` +
-            `• Confirm the transaction\n\n` +
-            `**Current Balance:**\n` +
-            `Use \`/balance\` to check your current balance.\n\n` +
-            `**Note:** All deposits are tracked and can be used for wagers. ` +
-            `When you create or accept a wager, the stake amount is deducted from your balance.`,
+        `**💰 How to Deposit Funds**\n\n` +
+            `**Method: Send a Tip**\n` +
+            `1. Long-press any message from this bot\n` +
+            `2. Select "Tip" or the tip icon\n` +
+            `3. Enter the amount you want to deposit\n` +
+            `4. Confirm the transaction\n\n` +
+            `The tip amount will be added to your balance automatically.\n\n` +
+            `Use \`/balance\` to check your current balance.`
     )
 }
 
@@ -471,7 +435,7 @@ export async function handleCancelWager(
     const wager = storage.getWager(wagerId)
 
     if (!wager) {
-        await handler.sendMessage(channelId, 'Wager not found.')
+        await handler.sendMessage(channelId, '❌ Wager not found')
         return
     }
 
@@ -481,7 +445,6 @@ export async function handleCancelWager(
         return
     }
 
-    // Refund creator
     const user = storage.getUser(userId)!
     user.balance += wager.stakeAmount
     storage.updateUser(userId, { balance: user.balance })
@@ -505,7 +468,7 @@ export async function handleCancelWager(
     await handler.sendMessage(
         channelId,
         `✅ **Wager Cancelled**\n\n` +
-            `Wager ${wagerId} has been cancelled and your stake of ${formatAmount(wager.stakeAmount)} has been refunded.`,
+            `Wager \`${wagerId}\` has been cancelled and your stake of ${formatAmount(wager.stakeAmount)} has been refunded.`
     )
 }
 
@@ -519,7 +482,7 @@ export async function handleDisputeWager(
         await handler.sendMessage(
             channelId,
             '**Usage:** `/dispute <wager_id> <reason>`\n\n' +
-                '**Example:** `/dispute wager_123 "The outcome was incorrectly determined"`',
+                '**Example:** `/dispute wager_123 The outcome was incorrectly determined`'
         )
         return
     }
@@ -529,7 +492,7 @@ export async function handleDisputeWager(
 
     const wager = storage.getWager(wagerId)
     if (!wager) {
-        await handler.sendMessage(channelId, 'Wager not found.')
+        await handler.sendMessage(channelId, '❌ Wager not found')
         return
     }
 
@@ -558,10 +521,9 @@ export async function handleDisputeWager(
     await handler.sendMessage(
         channelId,
         `✅ **Dispute Opened**\n\n` +
-            `**Dispute ID:** ${disputeId}\n` +
-            `**Wager ID:** ${wagerId}\n` +
+            `**Dispute ID:** \`${disputeId}\`\n` +
+            `**Wager ID:** \`${wagerId}\`\n` +
             `**Reason:** ${reason}\n\n` +
-            `An admin will review your dispute within 24 hours. The wager is now frozen until resolution.`,
+            `An admin will review your dispute within 24 hours. The wager is frozen until resolution.`
     )
 }
-
